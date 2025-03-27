@@ -1,6 +1,6 @@
 document.getElementById('solve-btn').addEventListener('click', solveDifferentialEquation);
 
-function solveDifferentialEquation() {
+async function solveDifferentialEquation() {
     const equationInput = document.getElementById('equation').value.trim();
     const stepsDiv = document.getElementById('steps');
     const solutionDiv = document.getElementById('solution');
@@ -53,8 +53,8 @@ function solveDifferentialEquation() {
                `${separated.gExpr} d${depVar} = ${separated.hExpr} d${indepVar}`);
         
         // Paso 4: Integrar ambos lados
-        const gIntegral = integrate(separated.gExpr, depVar);
-        const hIntegral = integrate(separated.hExpr, indepVar);
+        const gIntegral = await integrate(separated.gExpr, depVar);
+        const hIntegral = await integrate(separated.hExpr, indepVar);
         
         addStep(stepsDiv, "Paso 4: Integrar ambos lados", 
                `\\int ${separated.gExpr} \\, d${depVar} = \\int ${separated.hExpr} \\, d${indepVar}`);
@@ -72,8 +72,18 @@ function solveDifferentialEquation() {
 
 
 function renderMath(container, mathExpression) {
+    // Reemplazar caracteres Unicode acentuados con sus equivalentes LaTeX
+    const sanitizedExpression = mathExpression
+        .replace(/á/g, "\\'a")
+        .replace(/é/g, "\\'e")
+        .replace(/í/g, "\\'i")
+        .replace(/ó/g, "\\'o")
+        .replace(/ú/g, "\\'u")
+        .replace(/ñ/g, "\\~n")
+        .replace(/\*\*/g, '^'); // Reemplazar ** por ^ para potencias
+
     // Renderizar la expresión matemática usando KaTeX
-    katex.render(mathExpression, container, {
+    katex.render(sanitizedExpression, container, {
         throwOnError: false
     });
 }
@@ -146,22 +156,50 @@ function trySeparateVariables(expr, depVar, indepVar) {
     }
 }
 
-function integrate(expr, variable) {
+async function integrate(expr, variable) {
     try {
-        // Usar math.js para integrar
-        const node = math.parse(expr);
-        let integral;
-        
-        // Manejar casos especiales
+        // Casos especiales para integrales comunes
         if (expr === `1/${variable}`) {
-            integral = `ln|${variable}|`;
-        } else {
-            integral = math.simplify(math.integrate(node, variable).toString());
+            return `ln|${variable}|`; // Integral de 1/x
+        } else if (expr === `sin(${variable})`) {
+            return `-cos(${variable})`; // Integral de sin(x)
+        } else if (expr === `cos(${variable})`) {
+            return `sin(${variable})`; // Integral de cos(x)
+        } else if (expr === `e^${variable}` || expr === `exp(${variable})`) {
+            return `e^${variable}`; // Integral de e^x
+        } else if (expr === `${variable}^n` && expr.includes('n')) {
+            const n = parseFloat(expr.split('^')[1]);
+            if (n !== -1) {
+                return `${variable}^${n + 1} / ${n + 1}`;
+            }
         }
-        
+
+        // Usar math.js para integrales más generales
+        const node = math.parse(expr);
+        const integral = math.simplify(math.integrate(node, variable).toString());
         return integral;
     } catch (e) {
-        // Si math.js no puede integrar, devolver la integral simbólica
-        return `∫ ${expr} d${variable}`;
+        // Si math.js falla, usar el backend SymPy
+        try {
+            const response = await fetch('http://127.0.0.1:5000/integrate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ expression: expr, variable: variable })
+            });
+
+            if (!response.ok) {
+                throw new Error('Error al calcular la integral con SymPy');
+            }
+
+            const data = await response.json();
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            return data.result;
+        } catch (backendError) {
+            // Si SymPy también falla, devolver la integral simbólica
+            return `∫ ${expr} d${variable}`;
+        }
     }
 }

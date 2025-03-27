@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Resolvedor de Ecuaciones Diferenciales</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.7.0/math.js"></script>
 </head>
@@ -15,12 +15,32 @@
         <h1>Resolvedor de Ecuaciones Diferenciales</h1>
         <h2>Variables Separables</h2>
         
+        <!-- Instructivo -->
+        <div class="instructions">
+            <h3>Instrucciones:</h3>
+            <ul>
+                <li>Ingresa la ecuación diferencial en el formato estándar: <code>dy/dx = f(x, y)</code>.</li>
+                <li>Usa <code>x</code> como la variable independiente y <code>y</code> como la variable dependiente.</li>
+                <li>Ejemplos válidos:
+                    <ul>
+                        <li><code>dy/dx = x^2 / y</code></li>
+                        <li><code>dy/dx = 2x * y^2</code></li>
+                        <li><code>dy/dx = sin(x) * y</code></li>
+                    </ul>
+                </li>
+                <li>No uses caracteres especiales ni acentos en las ecuaciones.</li>
+                <li>La ecuación debe ser separable para que el método funcione.</li>
+            </ul>
+        </div>
+        
+        <!-- Sección de entrada -->
         <div class="input-section">
-            <label for="equation">Ingresa la ecuación diferencial (usar 'y' para la función y 'x' para la variable):</label>
+            <label for="equation">Ingresa la ecuación diferencial:</label>
             <input type="text" id="equation" placeholder="Ej: dy/dx = x^2/y">
             <button id="solve-btn">Resolver</button>
         </div>
         
+        <!-- Sección de solución -->
         <div class="solution-section">
             <h3>Procedimiento:</h3>
             <div id="steps"></div>
