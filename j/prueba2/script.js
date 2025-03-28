@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    function solveDifferentialEquation() {
+    async function solveDifferentialEquation() {
         // Limpiar solución anterior
         stepsContainer.innerHTML = '';
         
@@ -59,8 +59,8 @@ document.addEventListener('DOMContentLoaded', function() {
                    `\\[ \\frac{dy}{${convertToTeX(separated.yExpr)}} = ${convertToTeX(separated.xExpr)} \\, dx \\]`);
             
             // Paso 2: Integrar ambos lados
-            const yIntegral = integrate(separated.yExpr, 'y');
-            const xIntegral = integrate(separated.xExpr, 'x');
+            const yIntegral = await integrate(separated.yExpr, 'y');
+            const xIntegral = await integrate(separated.xExpr, 'x');
             
             addStep('Integral del lado izquierdo:', 
                    `\\[ \\int \\frac{dy}{${convertToTeX(separated.yExpr)}} = ${convertToTeX(yIntegral)} \\]`);
@@ -83,8 +83,13 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Función para convertir expresiones a formato TeX
     function convertToTeX(expr) {
+        // Si ya es formato LaTeX (viene de Python)
+        if (typeof expr === 'object' && expr.latex) {
+            return expr.latex;
+        }
+        
         // Reemplazar operadores y funciones
-        let texExpr = expr
+        let texExpr = expr.toString()
             .replace(/\//g, '}{') // Fracciones
             .replace(/\^/g, '^')   // Exponentes
             .replace(/\*/g, ' \\cdot ') // Multiplicación
@@ -188,18 +193,58 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    function integrate(expr, variable) {
+    async function integrate(expr, variable) {
         try {
-            // Usar math.js para integrar
+            // Primero intentamos con math.js
             const integral = math.integrate(expr, variable);
-            
-            // Simplificar el resultado
             const simplified = math.simplify(integral);
+            
+            // Verificamos si el resultado es una integral no resuelta
+            if (simplified.toString().includes('integral')) {
+                const pythonResult = await integrateWithPython(expr, variable);
+                return pythonResult.latex || pythonResult.result || `\\int ${expr} \\, d${variable}`;
+            }
             
             return simplified.toString();
         } catch (error) {
-            console.error('Error al integrar:', error);
-            return `\\int ${expr} \\, d${variable}`;
+            console.error('Error con math.js, intentando con Python API:', error);
+            const pythonResult = await integrateWithPython(expr, variable);
+            return pythonResult.latex || pythonResult.result || `\\int ${expr} \\, d${variable}`;
+        }
+    }
+    
+    async function integrateWithPython(expr, variable) {
+        const apiUrl = 'http://localhost:5000/integrate'; // Cambia esto por tu URL de producción
+        
+        try {
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    expression: expr,
+                    variable: variable
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Error en la API: ${response.status}`);
+            }
+
+            const data = await response.json();
+            
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            return data;
+        } catch (error) {
+            console.error('Error al conectar con la API de Python:', error);
+            return {
+                result: `\\int ${expr} \\, d${variable}`,
+                error: error.message
+            };
         }
     }
     
