@@ -1,18 +1,30 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from sympy import symbols, integrate, sympify, simplify, latex, Eq, Derivative
-from sympy.parsing.sympy_parser import parse_expr, standard_transformations, implicit_multiplication_application
+from sympy import symbols, integrate, simplify, latex, sympify
+from sympy.parsing.sympy_parser import (parse_expr, standard_transformations,
+                                       implicit_multiplication_application, convert_xor)
 import logging
 
 app = Flask(__name__)
-CORS(app)  # Habilitar CORS para todas las rutas
+CORS(app)
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Transformaciones para el parser
-transformations = (standard_transformations + (implicit_multiplication_application,))
+transformations = (standard_transformations +
+                  (implicit_multiplication_application, convert_xor))
+
+def preprocess_expression(expr):
+    """Preprocesa la expresión para SymPy"""
+    # Reemplazar ^ por **
+    expr = expr.replace('^', '**')
+    
+    # Asegurar multiplicación implícita
+    expr = expr.replace(')(', ')*(')
+    
+    return expr
 
 @app.route('/integrate', methods=['POST'])
 def integrate_expression():
@@ -21,85 +33,56 @@ def integrate_expression():
     variable = data.get('variable')
 
     if not expr or not variable:
-        return jsonify({'error': 'Se requieren expresión y variable'}), 400
-
-    try:
-        logger.info(f"Resolviendo integral de {expr} respecto a {variable}")
-        
-        # Definir la variable simbólica
-        var = symbols(variable)
-        
-        # Convertir la expresión a un formato simbólico
-        symbolic_expr = parse_expr(expr, transformations=transformations, evaluate=False)
-        
-        # Calcular la integral
-        integral_result = integrate(symbolic_expr, var)
-        
-        # Simplificar el resultado
-        simplified_result = simplify(integral_result)
-        
-        # Convertir a LaTeX para mejor visualización
-        latex_result = latex(simplified_result)
-        
-        logger.info(f"Resultado: {simplified_result}")
-        
         return jsonify({
-            'result': str(simplified_result),
-            'latex': latex_result,
-            'status': 'success'
-        })
-        
-    except Exception as e:
-        logger.error(f"Error al integrar: {str(e)}")
-        return jsonify({
-            'error': f"No se pudo resolver la integral: {str(e)}",
-            'input_expr': expr,
-            'variable': variable,
-            'status': 'error'
+            'error': 'Missing expression or variable',
+            'latex': '\\text{Error: Falta expresión o variable}',
+            'result': 'Error: Missing expression or variable'
         }), 400
 
-@app.route('/solve_ode', methods=['POST'])
-def solve_ode():
-    data = request.json
-    equation = data.get('equation')
-    
-    if not equation:
-        return jsonify({'error': 'Se requiere una ecuación diferencial'}), 400
-
     try:
-        logger.info(f"Resolviendo ecuación diferencial: {equation}")
+        logger.info(f"Integrating {expr} with respect to {variable}")
         
-        # Parsear la ecuación
+        # Preprocesar expresión
+        expr_clean = preprocess_expression(expr)
+        
+        # Definir variables
+        var = symbols(variable)
         x = symbols('x')
-        y = symbols('y', cls=Function)
+        y = symbols('y')
         
-        # Convertir la ecuación a formato sympy
-        ode = parse_expr(equation, transformations=transformations, evaluate=False)
+        # Parsear expresión
+        symbolic_expr = parse_expr(expr_clean, transformations=transformations,
+                                 locals={'x': x, 'y': y}, evaluate=False)
         
-        # Resolver la ecuación diferencial
-        solution = dsolve(ode, y(x))
+        # Integrar
+        integral = integrate(symbolic_expr, var)
         
-        # Simplificar el resultado
-        simplified_solution = simplify(solution)
+        # Simplificar
+        simplified = simplify(integral)
         
         # Convertir a LaTeX
-        latex_solution = latex(simplified_solution)
+        latex_output = latex(simplified, mode='plain')
         
-        logger.info(f"Solución: {simplified_solution}")
+        logger.info(f"Result: {simplified}")
         
         return jsonify({
-            'solution': str(simplified_solution),
-            'latex': latex_solution,
+            'result': str(simplified),
+            'latex': latex_output,
             'status': 'success'
         })
         
     except Exception as e:
-        logger.error(f"Error al resolver la ODE: {str(e)}")
+        logger.error(f"Integration error: {str(e)}")
         return jsonify({
-            'error': f"No se pudo resolver la ecuación diferencial: {str(e)}",
-            'input_equation': equation,
+            'error': str(e),
+            'latex': f'\\text{{Error: {str(e)}}}',
+            'result': f'Error: {str(e)}',
             'status': 'error'
         }), 400
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({'status': 'healthy'}), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

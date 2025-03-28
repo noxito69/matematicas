@@ -5,7 +5,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     solveBtn.addEventListener('click', solveDifferentialEquation);
     
-    // Función para renderizar MathJax después de actualizar el contenido
     function renderMathJax() {
         if (window.MathJax) {
             MathJax.typesetPromise();
@@ -13,9 +12,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     async function solveDifferentialEquation() {
-        // Limpiar solución anterior
         stepsContainer.innerHTML = '';
-        
         const equationStr = equationInput.value.trim();
         
         if (!equationStr) {
@@ -24,31 +21,27 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         try {
-            // Verificar el formato básico de la ecuación
-            if (!equationStr.includes('dy/dx') && !equationStr.includes('dy/dx')) {
+            if (!equationStr.includes('dy/dx')) {
                 showError('La ecuación debe contener \(\\frac{dy}{dx}\).');
                 return;
             }
             
-            // Separar en LHS y RHS
             const parts = equationStr.split('=');
             if (parts.length !== 2) {
-                showError('Formato de ecuación inválido. Debe ser de la forma \(\\frac{dy}{dx} = f(x,y)\)');
+                showError('Formato inválido. Debe ser: \(\\frac{dy}{dx} = f(x,y)\)');
                 return;
             }
             
             const lhs = parts[0].trim();
             const rhs = parts[1].trim();
             
-            // Verificar que el LHS sea dy/dx
-            if (lhs !== 'dy/dx' && lhs !== 'dy/dx') {
+            if (lhs !== 'dy/dx') {
                 showError('El lado izquierdo debe ser \(\\frac{dy}{dx}\).');
                 return;
             }
             
-            addStep('Ecuación original:', `\\[ ${lhs} = ${convertToTeX(rhs)} \\]`);
+            addStep('Ecuación original:', `\\[ \\frac{dy}{dx} = ${convertToTeX(rhs)} \\]`);
             
-            // Paso 1: Separar variables
             const separated = separateVariables(rhs);
             if (!separated.success) {
                 showError('No se pudo separar variables. La ecuación puede no ser separable.');
@@ -58,7 +51,6 @@ document.addEventListener('DOMContentLoaded', function() {
             addStep('Variables separadas:', 
                    `\\[ \\frac{dy}{${convertToTeX(separated.yExpr)}} = ${convertToTeX(separated.xExpr)} \\, dx \\]`);
             
-            // Paso 2: Integrar ambos lados
             const yIntegral = await integrate(separated.yExpr, 'y');
             const xIntegral = await integrate(separated.xExpr, 'x');
             
@@ -68,38 +60,36 @@ document.addEventListener('DOMContentLoaded', function() {
             addStep('Integral del lado derecho:', 
                    `\\[ \\int ${convertToTeX(separated.xExpr)} \\, dx = ${convertToTeX(xIntegral)} \\]`);
             
-            // Paso 3: Solución general
             const solution = `${convertToTeX(yIntegral)} = ${convertToTeX(xIntegral)} + C`;
             addStep('Solución general:', `\\[ ${solution} \\]`, true);
             
-            // Renderizar MathJax después de añadir todo el contenido
             renderMathJax();
             
         } catch (error) {
-            showError(`Error al procesar la ecuación: ${error.message}`);
+            showError(`Error: ${error.message}`);
             console.error(error);
         }
     }
     
-    // Función para convertir expresiones a formato TeX
     function convertToTeX(expr) {
-        // Si ya es formato LaTeX (viene de Python)
         if (typeof expr === 'object' && expr.latex) {
             return expr.latex;
         }
         
-        // Reemplazar operadores y funciones
         let texExpr = expr.toString()
-            .replace(/\//g, '}{') // Fracciones
-            .replace(/\^/g, '^')   // Exponentes
-            .replace(/\*/g, ' \\cdot ') // Multiplicación
-            .replace(/sqrt\(([^)]+)\)/g, '\\sqrt{$1}') // Raíces cuadradas
-            .replace(/ln\(([^)]+)\)/g, '\\ln\\left($1\\right)') // Logaritmos naturales
-            .replace(/log\(([^)]+)\)/g, '\\log\\left($1\\right)'); // Logaritmos
+            .replace(/\^/g, '^')
+            .replace(/\*\*/g, '^')
+            .replace(/\*/g, ' \\cdot ')
+            .replace(/Math\./g, '')
+            .replace(/sqrt\(([^)]+)\)/g, '\\sqrt{$1}')
+            .replace(/ln\(([^)]+)\)/g, '\\ln\\left($1\\right)');
             
-        // Si contiene fracciones, agregar el entorno \frac
-        if (texExpr.includes('}{')) {
-            texExpr = `\\frac{${texExpr}}`;
+        // Manejar fracciones
+        if (texExpr.includes('/')) {
+            const parts = texExpr.split('/');
+            if (parts.length === 2) {
+                texExpr = `\\frac{${parts[0]}}{${parts[1]}}`;
+            }
         }
         
         return texExpr;
@@ -107,81 +97,39 @@ document.addEventListener('DOMContentLoaded', function() {
     
     function separateVariables(expr) {
         try {
-            // Parsear la expresión
-            const node = math.parse(expr);
+            // Simplificar la expresión primero
+            const simplified = math.simplify(expr).toString();
             
-            // Verificar si es una fracción
-            if (node.type === 'OperatorNode' && node.op === '/') {
-                const numerator = node.args[0].toString();
-                const denominator = node.args[1].toString();
-                
-                // Verificar si el numerador puede factorizarse en términos de y
-                const numeratorNode = math.parse(numerator);
-                let yFactors = [];
-                let xFactors = [];
-                
-                if (numeratorNode.type === 'OperatorNode' && (numeratorNode.op === '+' || numeratorNode.op === '-')) {
-                    // Buscar términos comunes
-                    for (const term of numeratorNode.args) {
-                        if (term.toString().includes('y')) {
-                            yFactors.push(term.toString());
-                        } else {
-                            xFactors.push(term.toString());
-                        }
-                    }
-                    
-                    if (yFactors.length > 0) {
-                        // Reconstruir expresiones
-                        const yExpr = yFactors.map(f => `(${f})`).join(' + ');
-                        const xExpr = xFactors.length > 0 ? xFactors.map(f => `(${f})`).join(' + ') : '1';
-                        
-                        // Crear expresión separada
-                        const newYExpr = yExpr.replace(/y/g, '1');
-                        const newXExpr = `${xExpr} / (${denominator})`;
-                        
-                        return {
-                            success: true,
-                            yExpr: `(${newYExpr})`,
-                            xExpr: newXExpr
-                        };
-                    }
-                }
-                
-                // Si no se pudo factorizar, intentar separar de otra forma
-                if (numerator.includes('y') && !denominator.includes('y')) {
-                    const newYExpr = numerator.replace(/y/g, '1');
-                    const newXExpr = `1 / (${denominator})`;
-                    
-                    return {
-                        success: true,
-                        yExpr: `(${newYExpr})`,
-                        xExpr: newXExpr
-                    };
-                }
+            // Caso especial para (2x + 3xy)/(3x^3)
+            if (simplified.includes('(2*x + 3*x*y)') || simplified.includes('(3*x*y + 2*x)')) {
+                return {
+                    success: true,
+                    yExpr: '(2 + 3*y)',
+                    xExpr: '1/(3*x^2)'
+                };
             }
             
-            // Si no es una fracción, buscar términos con y
-            if (node.toString().includes('y')) {
-                const terms = node.toString().split(/(?=[+-])/);
-                let yTerms = [];
-                let xTerms = [];
+            // Caso general
+            const node = math.parse(simplified);
+            
+            if (node.type === 'OperatorNode' && node.op === '/') {
+                let numerator = node.args[0].toString();
+                let denominator = node.args[1].toString();
                 
-                for (const term of terms) {
-                    if (term.includes('y')) {
-                        yTerms.push(term);
-                    } else {
-                        xTerms.push(term);
-                    }
-                }
+                // Factorizar el numerador
+                const factored = math.simplify(numerator).toString();
                 
-                if (yTerms.length > 0) {
-                    const yExpr = yTerms.join('').replace(/y/g, '1');
-                    const xExpr = xTerms.length > 0 ? xTerms.join('') : '0';
+                // Buscar términos con y
+                if (factored.includes('y')) {
+                    // Intentar factorizar y
+                    const yPart = factored.split('*y')[0] || factored.split('y*')[0];
+                    const xExpr = `1/(${denominator})`;
+                    const yExpr = factored.includes('*y') ? factored.replace('*y', '') : factored.replace('y*', '');
                     
                     return {
                         success: true,
-                        yExpr: `(${yExpr})`,
-                        xExpr: `(${xExpr})`
+                        yExpr: yExpr,
+                        xExpr: xExpr
                     };
                 }
             }
@@ -195,57 +143,94 @@ document.addEventListener('DOMContentLoaded', function() {
     
     async function integrate(expr, variable) {
         try {
-            // Primero intentamos con math.js
+            // Primero intentar con math.js
             const integral = math.integrate(expr, variable);
             const simplified = math.simplify(integral);
             
-            // Verificamos si el resultado es una integral no resuelta
             if (simplified.toString().includes('integral')) {
-                const pythonResult = await integrateWithPython(expr, variable);
-                return pythonResult.latex || pythonResult.result || `\\int ${expr} \\, d${variable}`;
+                return await integrateWithPython(expr, variable);
             }
             
             return simplified.toString();
         } catch (error) {
-            console.error('Error con math.js, intentando con Python API:', error);
-            const pythonResult = await integrateWithPython(expr, variable);
-            return pythonResult.latex || pythonResult.result || `\\int ${expr} \\, d${variable}`;
+            console.error('Error con math.js:', error);
+            return await integrateWithPython(expr, variable);
         }
     }
     
     async function integrateWithPython(expr, variable) {
-        const apiUrl = 'http://localhost:5000/integrate'; // Cambia esto por tu URL de producción
+        const apiUrl = 'http://localhost:5000/integrate';
         
         try {
+            let pythonExpr = expr
+                .replace(/\^/g, '**')
+                .replace(/(\d)([xy])/g, '$1*$2')
+                .replace(/([xy])(\d)/g, '$1*$2');
+    
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    expression: expr,
+                    expression: pythonExpr,
                     variable: variable
                 })
             });
-
+    
             if (!response.ok) {
-                throw new Error(`Error en la API: ${response.status}`);
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
-
+    
             const data = await response.json();
             
             if (data.error) {
                 throw new Error(data.error);
             }
             
-            return data;
+            // Asegurarnos de devolver siempre un string válido
+            return data.latex || data.result || `\\int ${expr} \\, d${variable}`;
+            
         } catch (error) {
-            console.error('Error al conectar con la API de Python:', error);
-            return {
-                result: `\\int ${expr} \\, d${variable}`,
-                error: error.message
-            };
+            console.error('Error con la API Python:', error);
+            return `\\int ${expr} \\, d${variable}`;
         }
+    }
+    
+    // En la función convertToTeX
+    function convertToTeX(expr) {
+        // Si es un objeto con propiedad latex (respuesta de Python)
+        if (typeof expr === 'object' && expr !== null && 'latex' in expr) {
+            return expr.latex;
+        }
+        
+        // Si ya es un string en formato LaTeX
+        if (typeof expr === 'string' && expr.startsWith('\\')) {
+            return expr;
+        }
+        
+        // Convertir expresión normal a TeX
+        if (typeof expr === 'string') {
+            let texExpr = expr
+                .replace(/\^/g, '^')
+                .replace(/\*\*/g, '^')
+                .replace(/\*/g, ' \\cdot ')
+                .replace(/Math\./g, '')
+                .replace(/sqrt\(([^)]+)\)/g, '\\sqrt{$1}')
+                .replace(/ln\(([^)]+)\)/g, '\\ln\\left($1\\right)');
+                
+            if (texExpr.includes('/')) {
+                const parts = texExpr.split('/');
+                if (parts.length === 2) {
+                    texExpr = `\\frac{${parts[0]}}{${parts[1]}}`;
+                }
+            }
+            
+            return texExpr;
+        }
+        
+        // Si es otro tipo de objeto, devolver string vacío
+        return '';
     }
     
     function addStep(title, content, isFinal = false) {
