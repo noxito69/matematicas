@@ -32,19 +32,16 @@ async function solveDifferentialEquation() {
             throw new Error('El lado izquierdo debe ser una derivada (dy/dx o dx/dy)');
         }
         
-        // Determinar variable dependiente e independiente
-        const [numerator, denominator] = lhs.split('/').map(s => s.trim());
-        const depVar = numerator.replace('d', '');
-        const indepVar = denominator.replace('d', '');
+        // Paso 2: Simplificar la ecuación
+        const simplified = math.simplify(rhs);
+        addStep(stepsDiv, "Paso 2: Simplificar la ecuación", `dy/dx = ${simplified.toString()}`);
         
-        addStep(stepsDiv, `Paso 2: Identificar variables`, 
-               `Variable dependiente: ${depVar}, Variable independiente: ${indepVar}`);
-        
-        // Paso 3: Separar variables
+        // Paso 3: Intentar separar variables
+        const depVar = 'y'; // Variable dependiente
+        const indepVar = 'x'; // Variable independiente
         let separated;
         try {
-            // Intentar separar variables automáticamente
-            separated = trySeparateVariables(rhs, depVar, indepVar);
+            separated = trySeparateVariables(simplified.toString(), depVar, indepVar);
         } catch (e) {
             throw new Error('No se pudo separar las variables automáticamente. Asegúrate de que la ecuación sea separable.');
         }
@@ -57,16 +54,55 @@ async function solveDifferentialEquation() {
         const hIntegral = await integrate(separated.hExpr, indepVar);
         
         addStep(stepsDiv, "Paso 4: Integrar ambos lados", 
-               `\\int ${separated.gExpr} \\, d${depVar} = \\int ${separated.hExpr} \\, d${indepVar}`);
+               `∫(${separated.gExpr}) d${depVar} = ∫(${separated.hExpr}) d${indepVar}`);
         addStep(stepsDiv, "Resultado de las integrales", 
                `${gIntegral} = ${hIntegral} + C`);
         
-        // Paso 5: Mostrar solución
-        renderMath(solutionDiv, `Solución implícita: ${gIntegral} = ${hIntegral} + C`);
+        // Paso 5: Mostrar solución general
+        const finalSolution = `${gIntegral} = ${hIntegral} + C`;
+        addStep(stepsDiv, "Paso 5: Solución general", finalSolution);
+        solutionDiv.textContent = `Solución general: ${finalSolution}`;
         
     } catch (error) {
         stepsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
-        solutionDiv.textContent = '';
+        solutionDiv.innerHTML = '';
+    }
+}
+
+function addStep(container, title, content) {
+    const stepDiv = document.createElement('div');
+    stepDiv.className = 'step';
+    stepDiv.innerHTML = `<strong>${title}:</strong> ${content}`;
+    container.appendChild(stepDiv);
+}
+
+function addStep(container, title, content) {
+    const stepDiv = document.createElement('div');
+    stepDiv.className = 'step';
+    stepDiv.innerHTML = `<strong>${title}:</strong> ${content}`;
+    container.appendChild(stepDiv);
+}
+
+async function simplifyExpression(expr) {
+    try {
+        const response = await fetch('http://127.0.0.1:5000/simplify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ expression: expr })
+        });
+
+        if (!response.ok) {
+            throw new Error('Error al simplificar la ecuación');
+        }
+
+        const data = await response.json();
+        if (data.error) {
+            throw new Error(data.error);
+        }
+
+        return data.simplified; // Devolver la ecuación simplificada
+    } catch (error) {
+        throw new Error(`Error al simplificar la ecuación: ${error.message}`);
     }
 }
 
@@ -101,20 +137,26 @@ function addStep(container, title, content) {
 }
 
 function trySeparateVariables(expr, depVar, indepVar) {
-    // Simplificar la expresión
-    const simplified = math.simplify(expr);
-
     try {
-        // Convertir la expresión en un árbol de nodos para análisis más detallado
-        const parsed = math.parse(simplified.toString());
+        // Simplificar la expresión inicial
+        const simplified = math.simplify(expr);
+
+        // Expandir el numerador y simplificar la fracción
+        const expanded = math.simplify(math.expand(simplified));
+
+        // Convertir la expresión expandida en un árbol de nodos para análisis más detallado
+        const parsed = math.parse(expanded.toString());
 
         // Inicializar expresiones para g(y) y h(x)
-        let gExpr = '1';
-        let hExpr = '1';
+        let gExpr = '1'; // Términos dependientes de y
+        let hExpr = '1'; // Términos dependientes de x
 
         // Función recursiva para analizar nodos
         function analyzeNode(node) {
-            if (node.type === 'OperatorNode' && node.op === '*') {
+            if (node.type === 'OperatorNode' && node.op === '+') {
+                // Si es una suma, analizar cada término
+                node.args.forEach(analyzeNode);
+            } else if (node.type === 'OperatorNode' && node.op === '*') {
                 // Si es un producto, analizar cada término
                 node.args.forEach(analyzeNode);
             } else if (node.type === 'OperatorNode' && node.op === '/') {
